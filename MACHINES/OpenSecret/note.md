@@ -50,7 +50,7 @@ Noticed that only `name` and `description` show up in the **POST request body** 
 
 ---
 
-## 🔍 Source Code Review  Finding the Cookie Name
+## Source Code Review  Finding the Cookie Name
 
 Read the page source. Found that the app expects the session token to be passed as a **cookie** with the name:
 
@@ -68,7 +68,7 @@ Cookie: session_token=<TOKEN_HERE>
 
 ---
 
-## 🔑 The Big Find  Secret Key in Source Code
+##  The Big Find  Secret Key in Source Code
 
 Kept reading the source. Found something that should **never** be in client-side code:
 
@@ -92,7 +92,7 @@ Nope. The app rejected it. That's because a JWT needs to be **signed and properl
 
 ---
 
-## 📖 Understanding JWT Structure
+##  Understanding JWT Structure
 
 A JWT token has **3 parts**, separated by dots:
 
@@ -125,7 +125,7 @@ So we need:
 
 ---
 
-## ⚒️ Forging the JWT Token
+##  Forging the JWT Token
 
 Headed over to **[jwt.io](https://jwt.io)**  the go-to tool for building and decoding JWT tokens.
 
