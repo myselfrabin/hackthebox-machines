@@ -1,94 +1,201 @@
-## CHALLENGE NAME: OpenSecret
-## DIFFICULTY: VERY EASY
-## PLATFORM: HACKTHEBOX
+#  HackTheBox  OpenSecret
+**Difficulty:** Very Easy
+**Category:** Web / JWT
 
-## Challenge Scenario: 
-- A simple help desk portal where users can submit support tickets. The application uses JWT tokens for session management, but something seems off about how they're implemented. Can you find the security flaw?
+---
 
+##  What This Challenge Is About
 
+A fake help desk portal where users submit support tickets. The app uses **JWT (JSON Web Tokens)** for session management  but the implementation has a critical flaw. Our job: find it and exploit it.
 
-## OPENING THE WEBSITE: 
+**Core Vulnerability:** The JWT secret key is **hardcoded and exposed in the client-side source code**. Anyone who reads the page source can forge their own valid JWT token.
 
-- Like this hackthebox challeng palying first time, kind of nervous
-!![alt text](./images/homepage.png)
+---
 
+##  Recon  Walking Through the App
 
-- When i try to submitting a token, there shows a **no session token provided![alt text](./images/nosessiontoken.png)**
-    - Quick test with:
-    ```
-    name: test {this shows as yourname}
-    email: abc@gmail.com
-    description: <u>issue is here
-    ```
-- And only name and description is shown as **json POST body**
-![POSTbODY](./images/postBody.png)
+### Step 1  Opening the Website
 
+First look at the portal. Simple ticket submission form. Nothing scary.
 
+![Homepage](./images/homepage.png)
 
+---
 
-- Now reading the source we got to know that the way to provide session is by giving variable name:  
+### Step 2  Submitting Without a Token
+
+Tried submitting a ticket straight away. Got hit with:
+
+> **"No session token provided"**
+
+![No Session Token](./images/nosessiontoken.png)
+
+The app wants a session token before it will accept anything.
+
+---
+
+### Step 3  Testing the Form
+
+Threw in a quick test submission:
+
+```
+name:        test
+email:       abc@gmail.com
+description: <u>issue is here
+```
+
+Noticed that only `name` and `description` show up in the **POST request body**  email is dropped. Good to know for later.
+
+![POST Body](./images/postBody.png)
+
+---
+
+## 🔍 Source Code Review  Finding the Cookie Name
+
+Read the page source. Found that the app expects the session token to be passed as a **cookie** with the name:
+
 ```
 session_token
 ```
-![alt text](./images/cookieName.png)
-- The way to provide cookie is by giving: **session_token=<ACTUAL TOKEN HERE>**
 
+So the format to pass it is:
 
-## SO QUESTION COMES HERE, HOW DO WE PROVIDE TOKEN: 
-- We get the secret in the source code is that the token?? --> let's see 
-![secret key](./images/secretKey.png)
-- Let's give this in burp as: 
 ```
-Cookie: session_token= HTB{0p3n_s3cr3ts_ar3_n0t_s3cr3ts}
+Cookie: session_token=<TOKEN_HERE>
 ```
-![alt text](./images/thisisjustasecretkey.png)
- - As we know every `jwt` needed to be signin so this is that signin key not a token itself.
 
-## Let's review source code again if we get any lead here: 
-![this source code clears everything](./images/clearsSourcecode.png)
-- Ok looking at this source code clears everthing: 
+![Cookie Name](./images/cookieName.png)
+
+---
+
+## 🔑 The Big Find  Secret Key in Source Code
+
+Kept reading the source. Found something that should **never** be in client-side code:
+
+> The **JWT signing secret** hardcoded right there in the JavaScript.
+
+![Secret Key](./images/secretKey.png)
+
+```
+HTB{0p3n_s3cr3ts_ar3_n0t_s3cr3ts}
+```
+
+**First instinct:** Is this the flag itself? Tried passing it directly as the cookie value in Burp:
+
+```
+Cookie: session_token=HTB{0p3n_s3cr3ts_ar3_n0t_s3cr3ts}
+```
+
+![Not a Token](./images/thisisjustasecretkey.png)
+
+Nope. The app rejected it. That's because a JWT needs to be **signed and properly formatted**  this is just the *signing secret*, not the token itself.
+
+---
+
+## 📖 Understanding JWT Structure
+
+A JWT token has **3 parts**, separated by dots:
+
+```
+HEADER.PAYLOAD.SIGNATURE
+```
+
+| Part | What it contains |
+|------|-----------------|
+| **Header** | Algorithm used (e.g. `HS256`) and token type |
+| **Payload** | The actual data (e.g. `username`) |
+| **Signature** | HMAC of header + payload, signed with the secret key |
+
+Reading more of the source code confirmed exactly what the app uses:
+
 ```javascript
- // Generate a JWT session token for the user
-            async function generateJWT() {
-                // Check if user already has a token
-                const existingToken = document.cookie
-                    .split("; ")
-                    .find((row) => row.startsWith("session_token="));
+// JWT Header
+const header = { alg: "HS256", typ: "JWT" };
 
-                if (existingToken) {
-                    console.log("Session token already exists");
-                    return;
-                }
+// JWT Payload
+const payload = { username: username };
+```
 
-                // Create a random guest username
-                const username = "guest_" + Math.floor(Math.random() * 10000);
+![Source Code](./images/clearsSourcecode.png)
 
-                // JWT Header
-                const header = { alg: "HS256", typ: "JWT" };
+So we need:
+- **Algorithm:** `HS256`
+- **Payload:** `{ "username": "anything" }`
+- **Signature:** signed with the exposed secret key
 
-                // JWT Payload
-                const payload = { username: username };
+---
+
+## ⚒️ Forging the JWT Token
+
+Headed over to **[jwt.io](https://jwt.io)**  the go-to tool for building and decoding JWT tokens.
+
+Filled in:
+
+| Field | Value |
+|-------|-------|
+| Algorithm | `HS256` |
+| Payload | `{ "username": "test" }` |
+| Secret | `HTB{0p3n_s3cr3ts_ar3_n0t_s3cr3ts}` |
+
+jwt.io generated a perfectly valid, signed JWT token.
+
+![Generate Token](./images/genrate_the_token.png)
+
+---
+
+##  Submitting the Forged Token  Flag Get
+
+Took the generated token into **Burp Suite**, added it as the cookie:
 
 ```
-    - This source code is for generating the jwt token every `jwt` token have three part i.e `header,payload and signature`
-    - The header for this jwt token is: `HS256` and it's having only one payload as: `username`{remember this we will tempring after sometime when generating token} and other part is signature we have already discovered it.
+Cookie: session_token=<FORGED_JWT_HERE>
+```
 
-## NOW THE ACTUAL PAYLOAD GENERATION WORKS BEGINS:
-- We go to the [jwt.io](https://www.jwt.io) and started playing around it to generate token.
-- 
-![alt text](./images/genrate_the_token.png)
-- Here, we by giving the header,payload and signature we successfully generated the payload.
-- We used the username `test` here because when I was trying at beginnig I have used test so I used test you can you anything.
-- So let's go to the burp and quick test it.
-- Our work on this lab is to submit the token by modifying and looking or security hole in jwt token hence we did it.
+Sent the request and...
 
+![Ticket Submitted Successfully](./images/Ticket_submitted_successfully.png)
 
+> **Ticket submitted successfully.**
 
-- solved 
+---
 
-![alt text](./images/Ticket_submitted_successfully.png)
+## Vulnerability Breakdown
 
+| Item | Detail |
+|------|--------|
+| **Vulnerability** | Hardcoded JWT secret in client-side JavaScript |
+| **CVSS Category** | Security Misconfiguration / Sensitive Data Exposure |
+| **Impact** | Any user can forge a valid session token and impersonate any user |
+| **Root Cause** | Secret key was included in frontend code (visible to everyone) |
 
+---
 
+##  How This Should Have Been Fixed
 
+1. **Never put secrets in frontend code.** The signing key must live server-side only  environment variables, a secrets manager, anything but the browser.
+2. **Validate tokens server-side strictly.** Even if a key leaks, additional claims (expiry, IP binding, etc.) add friction.
+3. **Rotate keys immediately** if they are ever exposed.
+
+---
+
+##  Full Attack Chain Summary
+
+```
+Read page source
+    → Found hardcoded JWT secret key
+    → Understood JWT structure from source (HS256, username payload)
+    → Forged a valid JWT at jwt.io using the leaked secret
+    → Passed the token as a Cookie in Burp Suite
+    → App accepted it → Flag captured
+```
+
+---
+
+##  Final Thoughts
+
+The challenge name **OpenSecret** says it all  a secret that's been left in the open isn't a secret anymore. This is a real-world mistake that shows up in actual bug bounty programs more often than you'd think. Developers sometimes forget that *anything shipped to the browser is public*.
+
+**Key takeaway:** Client-side code is readable by everyone. **Secrets never belong there.**
+
+---
 
